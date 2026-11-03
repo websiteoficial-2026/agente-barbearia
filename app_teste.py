@@ -19,7 +19,7 @@ def checar_disponibilidade(data_inicio):
     
     service = get_calendar_service()
     eventos = service.events().list(
-        calendarId='primary',
+        calendarId='dominio3004@gmail.com',
         timeMin=data_inicio.isoformat() + "-03:00",
         timeMax=data_fim.isoformat() + "-03:00",
         singleEvents=True
@@ -99,7 +99,7 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
                 
                 # Verifica mais uma vez antes de criar (segurança contra double-booking)
                 eventos = service.events().list(
-                    calendarId='primary',
+                    calendarId='dominio3004@gmail.com',
                     timeMin=data_inicio.isoformat() + "-03:00",
                     timeMax=data_fim.isoformat() + "-03:00",
                     singleEvents=True
@@ -111,7 +111,7 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
                         'start': {'dateTime': data_inicio.isoformat(), 'timeZone': 'America/Sao_Paulo'},
                         'end': {'dateTime': data_fim.isoformat(), 'timeZone': 'America/Sao_Paulo'},
                     }
-                    service.events().insert(calendarId='primary', body=evento_body).execute()
+                    service.events().insert(calendarId='dominio3004@gmail.com', body=evento_body).execute()
                     
                     acao_texto = "reagendado" if acao == "reagendar" else "confirmado"
                     resposta_final = f"✅ Excelente! Seu agendamento de {intencao['servico']} foi {acao_texto} para o dia {data_inicio.strftime('%d/%m às %H:%M')}."
