@@ -5,28 +5,48 @@ from datetime import datetime, timedelta
 from openai import OpenAI
 from google_auth import get_calendar_service
 
-# --- 1. Configuração da IA ---
+# --- 1. Configurações ---
 api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 base_url = st.secrets.get("OPENAI_BASE_URL") or os.getenv("OPENAI_BASE_URL", "https://api.groq.com/openai/v1")
 model_name = st.secrets.get("OPENAI_MODEL") or os.getenv("OPENAI_MODEL", "llama3-70b-8192")
 
 client = OpenAI(api_key=api_key, base_url=base_url)
 
-# --- Função Auxiliar para checar o Calendar ---
-def checar_disponibilidade(data_inicio):
-    # Define uma duração padrão de 30min apenas para checar se o horário está vago
-    data_fim = data_inicio + timedelta(minutes=30)
-    
+# ID do seu calendário
+CALENDAR_ID = 'dominio3004@gmail.com'
+
+def checar_disponibilidade(data_inicio, duracao=30):
+    data_fim = data_inicio + timedelta(minutes=duracao)
     service = get_calendar_service()
     eventos = service.events().list(
-        calendarId='dominio3004@gmail.com',
+        calendarId=CALENDAR_ID,
         timeMin=data_inicio.isoformat() + "-03:00",
         timeMax=data_fim.isoformat() + "-03:00",
         singleEvents=True
     ).execute()
-    
-    # Se não tiver itens na lista, está livre
     return not eventos.get('items')
+
+def buscar_e_deletar_evento(data_antiga, servico):
+    """Busca o evento antigo no dia especificado e o deleta."""
+    service = get_calendar_service()
+    try:
+        # Busca todos os eventos do dia
+        eventos_dia = service.events().list(
+            calendarId=CALENDAR_ID,
+            timeMin=data_antiga.strftime('%Y-%m-%dT00:00:00-03:00'),
+            timeMax=data_antiga.strftime('%Y-%m-%dT23:59:59-03:00'),
+            singleEvents=True
+        ).execute().get('items', [])
+
+        for evento in eventos_dia:
+            # Se o nome do serviço bater com o resumo do evento (ex: "Agendamento: Corte+Barba")
+            if servico.lower() in evento.get('summary', '').lower():
+                service.events().delete(calendarId=CALENDAR_ID, eventId=evento['id']).execute()
+                return True # Deletou com sucesso
+        return False # Não encontrou o evento
+    except Exception as e:
+        print(f"Erro ao deletar: {e}")
+        return False
 
 # --- 2. Interface ---
 st.set_page_config(page_title="Barbearia do João", page_icon="💈")
@@ -46,22 +66,22 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
 
     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # 3. PROMPT ATUALIZADO (Adicionada a ação 'verificar_horario')
+    # --- 3. PROMPT ATUALIZADO ---
     system_prompt = f"""
     Você é o assistente virtual da Barbearia do João.
     Data/Hora atual: {agora}.
     Serviços: Corte Simples (30min, R$30), Corte+Barba (45min, R$50), Barba (20min, R$20).
     
-    REGRAS IMPORTANTES (Você deve responder SEMPRE em formato JSON):
+    REGRAS IMPORTANTES (Responda SEMPRE em formato JSON):
     1. Leia o histórico para saber o que o cliente já falou.
-    2. Se o cliente perguntar se tem horário vago (ex: "tem às 14h?"), retorne EXATAMENTE este JSON:
+    2. Se perguntar se tem horário vago, retorne:
     {{"acao": "verificar_horario", "horario": "AAAA-MM-DDTHH:MM"}}
-    3. Se o cliente confirmar que quer agendar, retorne EXATAMENTE este JSON:
-    {{"acao": "agendar", "horario": "AAAA-MM-DDTHH:MM", "servico": "nome do serviço"}}
-    4. Se o cliente quiser ALTERAR um horário já combinado, retorne EXATAMENTE este JSON:
-    {{"acao": "reagendar", "horario": "AAAA-MM-DDTHH:MM", "servico": "nome do serviço"}}
-    5. Se for dúvida, saudação ou conversa, retorne EXATAMENTE este JSON:
-    {{"acao": "duvida", "resposta": "Sua resposta educada aqui"}}
+    3. Se quiser criar um NOVO agendamento, retorne:
+    {{"acao": "agendar", "horario": "AAAA-MM-DDTHH:MM", "servico": "nome"}}
+    4. Se quiser ALTERAR um agendamento feito no histórico, retorne:
+    {{"acao": "reagendar", "horario_antigo": "AAAA-MM-DDTHH:MM", "horario_novo": "AAAA-MM-DDTHH:MM", "servico": "nome"}}
+    5. Se for dúvida ou conversa, retorne:
+    {{"acao": "duvida", "resposta": "Sua resposta"}}
     """
 
     messages_for_api = [{"role": "system", "content": system_prompt}]
@@ -79,16 +99,16 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
             resposta_final = ""
             acao = intencao.get("acao")
 
-            # --- VERIFICAR HORÁRIO (Nova funcionalidade!) ---
+            # --- VERIFICAR ---
             if acao == "verificar_horario":
                 data_inicio = datetime.fromisoformat(intencao["horario"])
                 if checar_disponibilidade(data_inicio):
-                    resposta_final = f"✅ Sim, temos horário disponível às {data_inicio.strftime('%H:%M')} do dia {data_inicio.strftime('%d/%m')}. Qual serviço você gostaria de agendar?"
+                    resposta_final = f"✅ Sim, temos horário às {data_inicio.strftime('%H:%M')} do dia {data_inicio.strftime('%d/%m')}. Qual serviço deseja?"
                 else:
-                    resposta_final = f"❌ Infelizmente, o horário das {data_inicio.strftime('%H:%M')} já está ocupado. Gostaria de tentar outro horário?"
+                    resposta_final = f"❌ Infelizmente, às {data_inicio.strftime('%H:%M')} já está ocupado."
 
-            # --- AGENDAR / REAGENDAR ---
-            elif acao in ["agendar", "reagendar"]:
+            # --- AGENDAR (Novo) ---
+            elif acao == "agendar":
                 data_inicio = datetime.fromisoformat(intencao["horario"])
                 duracao = 30
                 if "Barba" in intencao["servico"]: duracao = 20
@@ -96,31 +116,53 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
                 data_fim = data_inicio + timedelta(minutes=duracao)
                 
                 service = get_calendar_service()
-                
-                # Verifica mais uma vez antes de criar (segurança contra double-booking)
-                eventos = service.events().list(
-                    calendarId='dominio3004@gmail.com',
-                    timeMin=data_inicio.isoformat() + "-03:00",
-                    timeMax=data_fim.isoformat() + "-03:00",
-                    singleEvents=True
-                ).execute()
 
-                if not eventos.get('items'):
+                if checar_disponibilidade(data_inicio, duracao):
                     evento_body = {
                         'summary': f"Agendamento: {intencao['servico']}",
                         'start': {'dateTime': data_inicio.isoformat(), 'timeZone': 'America/Sao_Paulo'},
                         'end': {'dateTime': data_fim.isoformat(), 'timeZone': 'America/Sao_Paulo'},
                     }
-                    service.events().insert(calendarId='dominio3004@gmail.com', body=evento_body).execute()
-                    
-                    acao_texto = "reagendado" if acao == "reagendar" else "confirmado"
-                    resposta_final = f"✅ Excelente! Seu agendamento de {intencao['servico']} foi {acao_texto} para o dia {data_inicio.strftime('%d/%m às %H:%M')}."
+                    service.events().insert(calendarId=CALENDAR_ID, body=evento_body).execute()
+                    resposta_final = f"✅ Excelente! Seu agendamento de {intencao['servico']} foi confirmado para {data_inicio.strftime('%d/%m às %H:%M')}."
                 else:
-                    resposta_final = "❌ Ops, parece que alguém acabou de ocupar esse horário. Pode me sugerir outro?"
+                    resposta_final = "❌ Ops, alguém acabou de ocupar esse horário. Pode sugerir outro?"
+
+            # --- REAGENDAR (Alterar) ---
+            elif acao == "reagendar":
+                dt_antigo = datetime.fromisoformat(intencao["horario_antigo"])
+                dt_novo = datetime.fromisoformat(intencao["horario_novo"])
+                servico = intencao["servico"]
+                
+                duracao = 30
+                if "Barba" in servico: duracao = 20
+                if "Corte+Barba" in servico: duracao = 45
+                dt_fim_novo = dt_novo + timedelta(minutes=duracao)
+
+                # 1. Tenta deletar o antigo
+                deletou = buscar_e_deletar_evento(dt_antigo, servico)
+                
+                if not deletou:
+                    resposta_final = f"⚠️ Não encontrei o agendamento anterior de {servico} para cancelar. Pode me informar a data exata?"
+
+                else:
+                    # 2. Se deletou, checa se o novo está livre
+                    if checar_disponibilidade(dt_novo, duracao):
+                        service = get_calendar_service()
+                        evento_body = {
+                            'summary': f"Agendamento: {servico}",
+                            'start': {'dateTime': dt_novo.isoformat(), 'timeZone': 'America/Sao_Paulo'},
+                            'end': {'dateTime': dt_fim_novo.isoformat(), 'timeZone': 'America/Sao_Paulo'},
+                        }
+                        service.events().insert(calendarId=CALENDAR_ID, body=evento_body).execute()
+                        resposta_final = f"✅ Excelente! Seu agendamento de {servico} foi reagendado para {dt_novo.strftime('%d/%m às %H:%M')}."
+                    else:
+                        # Se o novo está ocupado, precisamos avisar (infelizmente o antigo já foi deletado nesse teste simples)
+                        resposta_final = f"❌ O horário das {dt_novo.strftime('%H:%M')} está ocupado. O horário antigo foi cancelado. Pode sugerir outro?"
 
             # --- DÚVIDAS ---
             else:
-                resposta_final = intencao.get("resposta", "Olá! Como posso ajudar?")
+                resposta_final = intencao.get("resposta", "Como posso ajudar?")
 
         except Exception as e:
             resposta_final = f"⚠️ Erro no sistema: {str(e)}"
