@@ -37,13 +37,13 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
     Data/Hora atual: {agora}.
     Serviços: Corte Simples (30min), Corte+Barba (45min), Barba (20min).
     
-    REGRAS IMPORTANTES:
+    REGRAS IMPORTANTES (Você deve responder SEMPRE em formato JSON):
     1. Leia o histórico da conversa para saber o que o cliente já falou.
-    2. Se o cliente quiser criar um NOVO agendamento, retorne EXATAMENTE:
+    2. Se o cliente quiser criar um NOVO agendamento, retorne EXATAMENTE este JSON:
     {{"acao": "agendar", "horario": "AAAA-MM-DDTHH:MM", "servico": "nome do serviço"}}
-    3. Se o cliente quiser ALTERAR (reagendar) um horário que já foi combinado, retorne EXATAMENTE:
+    3. Se o cliente quiser ALTERAR (reagendar) um horário que já foi combinado, retorne EXATAMENTE este JSON:
     {{"acao": "reagendar", "horario": "AAAA-MM-DDTHH:MM", "servico": "nome do serviço"}}
-    4. Se for apenas uma dúvida ou conversa, retorne EXATAMENTE:
+    4. Se for apenas uma dúvida, saudação (como "oi") ou conversa, retorne EXATAMENTE este JSON:
     {{"acao": "duvida", "resposta": "Sua resposta educada aqui"}}
     """
 
