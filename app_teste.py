@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import json
 import io
+import hashlib
 from datetime import datetime, timedelta
 from openai import OpenAI
 from google_auth import get_calendar_service
@@ -178,6 +179,10 @@ if "user_name" not in st.session_state:
     st.session_state.user_name = None 
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "audio_key" not in st.session_state:
+    st.session_state.audio_key = 0  # muda a cada áudio processado, para limpar o gravador
+if "last_audio_hash" not in st.session_state:
+    st.session_state.last_audio_hash = None  # impede processar o mesmo áudio duas vezes
 
 # --- 2. Funções Auxiliares ---
 def checar_disponibilidade(data_inicio, duracao=30):
@@ -326,7 +331,11 @@ col1, col2 = st.columns([1, 4])
 
 with col1:
     # O componente de áudio fica alinhado à esquerda
-    audio_value = st.audio_input("🎤", label_visibility="collapsed")
+    audio_value = st.audio_input(
+        "🎤",
+        label_visibility="collapsed",
+        key=f"audio_{st.session_state.audio_key}",
+    )
 
 with col2:
     # O chat input fica alinhado à direita
@@ -337,10 +346,15 @@ if prompt:
     processar_mensagem(prompt)
 
 # Processa Áudio
-if audio_value is not None:
+audio_bytes = audio_value.getvalue() if audio_value is not None else None
+audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
+
+# Só processa se for um áudio NOVO (evita o loop de reenvio)
+if audio_hash and audio_hash != st.session_state.last_audio_hash:
+    st.session_state.last_audio_hash = audio_hash  # marca como processado ANTES de tudo
     with st.spinner("Transcrevendo áudio..."):
         try:
-            audio_file = io.BytesIO(audio_value.getvalue())
+            audio_file = io.BytesIO(audio_bytes)
             audio_file.name = "audio.wav"
             
             # Transcreve usando Groq (Whisper)
@@ -352,6 +366,7 @@ if audio_value is not None:
             
             # Passa o texto transcrito como se tivesse sido digitado
             processar_mensagem(texto_transcrito)
-            st.rerun() # Recarrega a tela para limpar o player de áudio antigo
+            st.session_state.audio_key += 1  # troca a key: o gravador volta vazio
+            st.rerun() # Recarrega a tela com o gravador limpo
         except Exception as e:
             st.error(f"Erro ao transcrever: {e}")
