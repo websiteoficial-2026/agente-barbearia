@@ -43,7 +43,147 @@ def criar_evento(nome, servico, data_inicio, duracao):
 
 # --- 2. Interface ---
 st.set_page_config(page_title="Barbearia do João", page_icon="💈")
+
+# ===== ESTILO VISUAL DA BARBEARIA (apenas CSS, não altera a lógica) =====
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Playfair+Display:wght@700;900&family=Lato:wght@400;700&display=swap');
+
+:root {
+    --carvao: #151210;
+    --couro: #241c17;
+    --madeira: #33261e;
+    --creme: #f3e9d7;
+    --dourado: #c9a227;
+    --vermelho: #b3202a;
+    --azul: #1f3f7a;
+}
+
+/* Fundo geral: couro escuro */
+[data-testid="stAppViewContainer"], .stApp {
+    background:
+        radial-gradient(circle at 20% 0%, rgba(201,162,39,0.08), transparent 45%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0 2px, transparent 2px 6px),
+        var(--carvao);
+    color: var(--creme);
+    font-family: 'Lato', sans-serif;
+}
+
+/* Cabeçalho do Streamlit: listra de barbeiro (poste) */
+[data-testid="stHeader"] {
+    background: repeating-linear-gradient(
+        -45deg,
+        var(--vermelho) 0 14px,
+        #f5f5f5 14px 28px,
+        var(--azul) 28px 42px,
+        #f5f5f5 42px 56px
+    );
+    height: 10px;
+    min-height: 10px;
+}
+[data-testid="stToolbar"], [data-testid="stDecoration"], footer { visibility: hidden; }
+
+/* Container central */
+.block-container {
+    max-width: 780px;
+    padding-top: 2.5rem;
+}
+
+/* Título */
+h1 {
+    font-family: 'Playfair Display', serif !important;
+    font-weight: 900 !important;
+    color: var(--dourado) !important;
+    text-align: center;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding-bottom: 0.6rem !important;
+    border-bottom: 2px solid var(--dourado);
+    text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+}
+h1::after {
+    content: "★ Tradição em cada corte ★";
+    display: block;
+    font-family: 'Oswald', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 400;
+    letter-spacing: 4px;
+    color: var(--creme);
+    opacity: 0.75;
+    margin-top: 0.4rem;
+}
+
+/* Mensagens do chat */
+[data-testid="stChatMessage"] {
+    background: var(--couro);
+    border: 1px solid rgba(201,162,39,0.25);
+    border-radius: 6px;
+    padding: 0.9rem 1.1rem;
+    margin-bottom: 0.8rem;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+/* Mensagem da Sofia (assistente): detalhe dourado */
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+    border-left: 5px solid var(--dourado);
+}
+/* Mensagem do cliente: detalhe vermelho */
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+    background: var(--madeira);
+    border-left: 5px solid var(--vermelho);
+}
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] li {
+    color: var(--creme);
+    font-size: 1.02rem;
+    line-height: 1.55;
+}
+
+/* Avatares */
+[data-testid^="stChatMessageAvatar"] {
+    background: var(--carvao) !important;
+    border: 2px solid var(--dourado);
+    border-radius: 50%;
+}
+
+/* Campo de digitar */
+[data-testid="stChatInput"] {
+    background: var(--couro);
+    border: 1.5px solid var(--dourado);
+    border-radius: 6px;
+}
+[data-testid="stChatInput"] textarea {
+    color: var(--creme) !important;
+    font-family: 'Lato', sans-serif;
+}
+[data-testid="stChatInput"] textarea::placeholder { color: rgba(243,233,215,0.5); }
+[data-testid="stChatInput"] button {
+    background: var(--vermelho) !important;
+    color: #fff !important;
+    border-radius: 4px;
+}
+[data-testid="stChatInput"] button:hover { background: #d12a36 !important; }
+[data-testid="stBottom"], [data-testid="stBottom"] > div {
+    background: var(--carvao) !important;
+}
+
+/* Spinner e alertas */
+.stSpinner > div { color: var(--dourado) !important; }
+.stSpinner svg, [data-testid="stSpinner"] i { border-top-color: var(--dourado) !important; }
+[data-testid="stAlert"] {
+    background: var(--couro);
+    border: 1px solid var(--vermelho);
+    color: var(--creme);
+}
+
+/* Barra de rolagem */
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: var(--carvao); }
+::-webkit-scrollbar-thumb { background: var(--dourado); border-radius: 5px; }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("💈 Agente da Barbearia")
+st.caption("🕘 Seg a Sáb · Corte Simples R$30 · Corte+Barba R$50 · Barba R$20")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -170,5 +310,5 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
             resposta_final = f"⚠️ Erro no sistema: {str(e)}"
 
     st.session_state.messages.append({"role": "assistant", "content": resposta_final})
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar="💈"):
         st.markdown(resposta_final)
