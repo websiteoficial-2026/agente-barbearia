@@ -13,11 +13,10 @@ model_name = st.secrets.get("OPENAI_MODEL") or os.getenv("OPENAI_MODEL", "llama3
 client = OpenAI(api_key=api_key, base_url=base_url)
 CALENDAR_ID = 'dominio3004@gmail.com'
 
-# Inicializa as variáveis na memória
 if "last_event_id" not in st.session_state:
     st.session_state.last_event_id = None
 if "user_name" not in st.session_state:
-    st.session_state.user_name = None # Aqui guardamos o nome do cliente
+    st.session_state.user_name = None 
 
 def checar_disponibilidade(data_inicio, duracao=30):
     data_fim = data_inicio + timedelta(minutes=duracao)
@@ -29,6 +28,18 @@ def checar_disponibilidade(data_inicio, duracao=30):
         singleEvents=True
     ).execute()
     return not eventos.get('items')
+
+def criar_evento(nome, servico, data_inicio, duracao):
+    data_fim = data_inicio + timedelta(minutes=duracao)
+    service = get_calendar_service()
+    titulo_evento = f"Agendamento: {nome} - {servico}"
+    evento_body = {
+        'summary': titulo_evento,
+        'start': {'dateTime': data_inicio.isoformat(), 'timeZone': 'America/Sao_Paulo'},
+        'end': {'dateTime': data_fim.isoformat(), 'timeZone': 'America/Sao_Paulo'},
+    }
+    evento_criado = service.events().insert(calendarId=CALENDAR_ID, body=evento_body).execute()
+    return evento_criado['id']
 
 # --- 2. Interface ---
 st.set_page_config(page_title="Barbearia do João", page_icon="💈")
@@ -49,29 +60,23 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     nome_atual = st.session_state.user_name if st.session_state.user_name else "Não identificado"
     
-    # --- 3. PROMPT PERSONALIZADO ---
+    # --- 3. PROMPT ---
     system_prompt = f"""
-    Você é a Sofia, recepcionista da Barbearia do João. Você é educada, acolhedora, humana e profissional.
+    Você é a Sofia, recepcionista da Barbearia do João. Você é educada, humana e profissional.
     Data/Hora atual: {agora}.
     Nome do cliente: {nome_atual}
     Serviços: Corte Simples (30min, R$30), Corte+Barba (45min, R$50), Barba (20min, R$20).
     
     REGRAS IMPORTANTES (Responda SEMPRE em formato JSON):
-    1. Se o nome do cliente for "Não identificado", pergunte o nome dele de forma educada ANTES de confirmar qualquer agendamento.
-    2. Se o cliente informar o nome, retorne EXATAMENTE:
-    {{"acao": "informar_nome", "nome": "Nome do Cliente"}}
-    3. Se o cliente perguntar por um horário, retorne:
-    {{"acao": "verificar_horario", "horario": "AAAA-MM-DDTHH:MM"}}
-    4. Se quiser criar um NOVO agendamento, retorne:
-    {{"acao": "agendar", "horario": "AAAA-MM-DDTHH:MM", "servico": "nome"}}
-    5. Se quiser MUDAR um agendamento feito no histórico, retorne:
+    1. Se o nome for "Não identificado", pergunte o nome de forma educada ANTES de prosseguir.
+    2. Se o cliente informar o nome, retorne: 
+    {{"acao": "informar_nome", "nome": "Nome", "resposta": "Sua saudação usando o histórico para continuar o assunto"}}
+    3. Se o cliente perguntar por um horário (ex: "tem 14h?"), retorne:
+    {{"acao": "verificar_horario", "horario": "AAAA-MM-DDTHH:MM", "servico": "nome do serviço se ele citou, senão deixe nulo"}}
+    4. Se o cliente pedir para mudar um agendamento feito, retorne:
     {{"acao": "reagendar", "horario_novo": "AAAA-MM-DDTHH:MM", "servico": "nome"}}
-    6. Para dúvidas ou conversas, retorne:
-    {{"acao": "duvida", "resposta": "Sua resposta educada e humanizada"}}
-
-    DICAS DE TOM DE VOZ:
-    - Se um horário estiver ocupado, não seja frio. Diga algo como: "Poxa, esse horário já está reservado. Mas tenho [outro horário], serve para você?"
-    - Use o nome do cliente na resposta quando souber.
+    5. Para dúvidas ou conversas, retorne:
+    {{"acao": "duvida", "resposta": "Sua resposta"}}
     """
 
     messages_for_api = [{"role": "system", "content": system_prompt}]
@@ -92,43 +97,32 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
             # --- INFORMAR NOME ---
             if acao == "informar_nome":
                 st.session_state.user_name = intencao["nome"]
-                resposta_final = f"Prazer em te conhecer, {intencao['nome']}! Como posso te ajudar hoje?"
+                resposta_final = intencao.get("resposta", f"Prazer em te conhecer, {intencao['nome']}! Como posso ajudar?")
 
-            # --- VERIFICAR ---
+            # --- VERIFICAR HORÁRIO (E JÁ AGENDAR SE TIVER SERVIÇO) ---
             elif acao == "verificar_horario":
                 data_inicio = datetime.fromisoformat(intencao["horario"])
+                servico = intencao.get("servico")
+                
                 if checar_disponibilidade(data_inicio):
-                    resposta_final = f"Temos sim! O horário das {data_inicio.strftime('%H:%M')} está livre. Qual serviço você gostaria de fazer?"
+                    if servico: # Se o cliente já falou o serviço na mesma frase
+                        if not st.session_state.user_name:
+                            resposta_final = f"✅ Sim, temos horário às {data_inicio.strftime('%H:%M')}. Só me diga seu nome para eu confirmar o agendamento."
+                        else:
+                            duracao = 30
+                            if "Barba" in servico: duracao = 20
+                            if "Corte+Barba" in servico: duracao = 45
+                            
+                            evento_id = criar_evento(st.session_state.user_name, servico, data_inicio, duracao)
+                            st.session_state.last_event_id = evento_id
+                            
+                            # LINHA AJUSTADA AQUI
+                            resposta_final = f"✅ Excelente! Seu agendamento de {servico} foi confirmado para {data_inicio.strftime('%d/%m às %H:%M')}."
+                    else: # Se ele só perguntou o horário
+                        # LINHA AJUSTADA AQUI
+                        resposta_final = f"✅ Sim, temos horário às {data_inicio.strftime('%H:%M')} do dia {data_inicio.strftime('%d/%m')}. Qual serviço deseja?"
                 else:
-                    resposta_final = f"Poxa, o horário das {data_inicio.strftime('%H:%M')} já está reservado. Gostaria de tentar outro horário?"
-
-            # --- AGENDAR (Novo) ---
-            elif acao == "agendar":
-                if not st.session_state.user_name:
-                    resposta_final = "Antes de confirmar, poderia me dizer seu nome, por favor?"
-                else:
-                    data_inicio = datetime.fromisoformat(intencao["horario"])
-                    duracao = 30
-                    if "Barba" in intencao["servico"]: duracao = 20
-                    if "Corte+Barba" in intencao["servico"]: duracao = 45
-                    data_fim = data_inicio + timedelta(minutes=duracao)
-                    
-                    service = get_calendar_service()
-
-                    if checar_disponibilidade(data_inicio, duracao):
-                        # Adiciona o nome do cliente no título do evento
-                        titulo_evento = f"Agendamento: {st.session_state.user_name} - {intencao['servico']}"
-                        evento_body = {
-                            'summary': titulo_evento,
-                            'start': {'dateTime': data_inicio.isoformat(), 'timeZone': 'America/Sao_Paulo'},
-                            'end': {'dateTime': data_fim.isoformat(), 'timeZone': 'America/Sao_Paulo'},
-                        }
-                        evento_criado = service.events().insert(calendarId=CALENDAR_ID, body=evento_body).execute()
-                        st.session_state.last_event_id = evento_criado['id']
-                        
-                        resposta_final = f"Prontinho, {st.session_state.user_name}! Seu {intencao['servico']} está confirmado para {data_inicio.strftime('%d/%m às %H:%M')}. Esperamos você!"
-                    else:
-                        resposta_final = "Ah, esse horário acabou de ser ocupado. Podemos tentar outro?"
+                    resposta_final = f"❌ Infelizmente, o horário das {data_inicio.strftime('%H:%M')} já está ocupado. Gostaria de tentar outro horário?"
 
             # --- REAGENDAR (Alterar) ---
             elif acao == "reagendar":
@@ -137,11 +131,9 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
                 else:
                     dt_novo = datetime.fromisoformat(intencao["horario_novo"])
                     servico = intencao["servico"]
-                    
                     duracao = 30
                     if "Barba" in servico: duracao = 20
                     if "Corte+Barba" in servico: duracao = 45
-                    dt_fim_novo = dt_novo + timedelta(minutes=duracao)
 
                     service = get_calendar_service()
                     deletou = False
@@ -158,18 +150,13 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
                         resposta_final = "Não localizei seu agendamento anterior. Vamos fazer um novo?"
                     else:
                         if checar_disponibilidade(dt_novo, duracao):
-                            titulo_evento = f"Agendamento: {st.session_state.user_name} - {servico}"
-                            evento_body = {
-                                'summary': titulo_evento,
-                                'start': {'dateTime': dt_novo.isoformat(), 'timeZone': 'America/Sao_Paulo'},
-                                'end': {'dateTime': dt_fim_novo.isoformat(), 'timeZone': 'America/Sao_Paulo'},
-                            }
-                            evento_criado = service.events().insert(calendarId=CALENDAR_ID, body=evento_body).execute()
-                            st.session_state.last_event_id = evento_criado['id']
+                            evento_id = criar_evento(st.session_state.user_name, servico, dt_novo, duracao)
+                            st.session_state.last_event_id = evento_id
                             
-                            resposta_final = f"Tudo certo, {st.session_state.user_name}! Remarquei seu {servico} para {dt_novo.strftime('%d/%m às %H:%M')}."
+                            # LINHA AJUSTADA AQUI
+                            resposta_final = f"✅ Excelente! Seu agendamento de {servico} foi reagendado para {dt_novo.strftime('%d/%m às %H:%M')}."
                         else:
-                            resposta_final = f"O horário das {dt_novo.strftime('%H:%M')} está ocupado. O antigo foi cancelado, qual outro horário fica bom para você?"
+                            resposta_final = f"❌ Infelizmente, o horário das {dt_novo.strftime('%H:%M')} está ocupado. O antigo foi cancelado, qual outro horário fica bom?"
 
             # --- DÚVIDAS ---
             else:
