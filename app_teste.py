@@ -48,13 +48,17 @@ st.title("💈 Agente da Barbearia")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# Onde renderiza o histórico
 for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
+    # Se for o robô, usa o emoji de barbearia. Se for o usuário, usa o emoji de pessoa.
+    avatar_emoji = "💈" if message["role"] == "assistant" else "🧑"
+    with st.chat_message(message["role"], avatar=avatar_emoji):
         st.markdown(message["content"])
 
+# Onde renderiza a mensagem que você acabou de digitar
 if prompt := st.chat_input("Digite sua mensagem aqui..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar="🧑"):
         st.markdown(prompt)
 
     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
