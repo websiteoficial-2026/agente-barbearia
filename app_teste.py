@@ -2,7 +2,8 @@ import streamlit as st
 import os
 import json
 import io
-import hashlib
+import base64
+import streamlit.components.v1 as components
 from datetime import datetime, timedelta
 from openai import OpenAI
 from google_auth import get_calendar_service
@@ -172,6 +173,10 @@ model_name = st.secrets.get("OPENAI_MODEL") or os.getenv("OPENAI_MODEL", "llama3
 client = OpenAI(api_key=api_key, base_url=base_url)
 CALENDAR_ID = 'dominio3004@gmail.com'
 
+# Botão de microfone "segure para falar" (estilo WhatsApp) - pasta push_to_talk/ ao lado deste arquivo
+PTT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "push_to_talk")
+push_to_talk = components.declare_component("push_to_talk", path=PTT_DIR)
+
 # Inicialização da memória
 if "last_event_id" not in st.session_state:
     st.session_state.last_event_id = None
@@ -179,8 +184,6 @@ if "user_name" not in st.session_state:
     st.session_state.user_name = None 
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "audio_key" not in st.session_state:
-    st.session_state.audio_key = 0  # muda a cada áudio processado, para limpar o gravador
 if "last_audio_hash" not in st.session_state:
     st.session_state.last_audio_hash = None  # impede processar o mesmo áudio duas vezes
 
@@ -208,12 +211,16 @@ def criar_evento(nome, servico, data_inicio, duracao):
     evento_criado = service.events().insert(calendarId=CALENDAR_ID, body=evento_body).execute()
     return evento_criado['id']
 
+def esc(texto):
+    """Escapa o cifrão para o Streamlit não interpretar R$30 ... R$50 como fórmula (só visual)."""
+    return str(texto).replace("$", "\\$")
+
 # --- 3. Função Principal do Agente (Agora Centralizada) ---
 def processar_mensagem(prompt):
     # Renderiza a mensagem do usuário na tela
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user", avatar="🧑‍💼"):
-        st.markdown(prompt)
+        st.markdown(esc(prompt))
 
     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     nome_atual = st.session_state.user_name if st.session_state.user_name else "Não identificado"
@@ -315,13 +322,13 @@ def processar_mensagem(prompt):
                 resposta_final = f"⚠️ Erro no sistema: {str(e)}"
             
             # Renderiza a resposta do agente
-            st.markdown(resposta_final)
+            st.markdown(esc(resposta_final))
             st.session_state.messages.append({"role": "assistant", "content": resposta_final})
 
 
 # --- 4. Interface Principal ---
 st.title("💈 Barbearia do João")
-st.caption("Atendimento virtual 24h com a Sofia · Corte R$30 · Corte+Barba R$50 · Barba R$20")
+st.caption("Atendimento virtual 24h com a Sofia · Corte R\\$30 · Corte+Barba R\\$50 · Barba R\\$20")
 
 # Área da conversa: fica SEMPRE acima da caixa de mensagem
 chat_area = st.container()
@@ -331,7 +338,7 @@ with chat_area:
     for message in st.session_state.messages:
         avatar = "💈" if message["role"] == "assistant" else "🧑‍💼"
         with st.chat_message(message["role"], avatar=avatar):
-            st.markdown(message["content"])
+            st.markdown(esc(message["content"]))
 
 # --- 5. Entradas do Usuário (Texto e Áudio) ---
 
@@ -340,11 +347,7 @@ col1, col2 = st.columns([1, 4])
 
 with col1:
     # O componente de áudio fica alinhado à esquerda
-    audio_value = st.audio_input(
-        "🎤",
-        label_visibility="collapsed",
-        key=f"audio_{st.session_state.audio_key}",
-    )
+    audio_data = push_to_talk(key="ptt", default=None)
 
 with col2:
     # O chat input fica alinhado à direita
@@ -356,27 +359,26 @@ if prompt:
         processar_mensagem(prompt)
 
 # Processa Áudio
-audio_bytes = audio_value.getvalue() if audio_value is not None else None
-audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
-
-# Só processa se for um áudio NOVO (evita o loop de reenvio)
-if audio_hash and audio_hash != st.session_state.last_audio_hash:
-    st.session_state.last_audio_hash = audio_hash  # marca como processado ANTES de tudo
+# Só processa se for um áudio NOVO (o valor do componente persiste entre recarregamentos)
+if audio_data and audio_data.get("id") != st.session_state.last_audio_hash:
+    st.session_state.last_audio_hash = audio_data["id"]  # marca como processado ANTES de tudo
     with chat_area, st.spinner("Transcrevendo áudio..."):
         try:
-            audio_file = io.BytesIO(audio_bytes)
-            audio_file.name = "audio.wav"
-            
+            audio_file = io.BytesIO(base64.b64decode(audio_data["data"]))
+            audio_file.name = f"audio.{audio_data.get('ext', 'webm')}"
+
             # Transcreve usando Groq (Whisper)
             transcricao = client.audio.transcriptions.create(
-                model="whisper-large-v3", 
-                file=audio_file
+                model="whisper-large-v3",
+                file=audio_file,
+                language="pt"
             )
-            texto_transcrito = transcricao.text
-            
-            # Passa o texto transcrito como se tivesse sido digitado
-            processar_mensagem(texto_transcrito)
-            st.session_state.audio_key += 1  # troca a key: o gravador volta vazio
-            st.rerun() # Recarrega a tela com o gravador limpo
+            texto_transcrito = transcricao.text.strip()
+
+            if texto_transcrito:
+                # Passa o texto transcrito como se tivesse sido digitado
+                processar_mensagem(texto_transcrito)
+            else:
+                st.warning("Não consegui entender o áudio. Pode tentar de novo?")
         except Exception as e:
             st.error(f"Erro ao transcrever: {e}")
