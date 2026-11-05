@@ -234,6 +234,11 @@ def processar_mensagem(prompt):
     {{"acao": "reagendar", "horario_novo": "AAAA-MM-DDTHH:MM", "servico": "nome"}}
     5. Para dúvidas ou conversas, retorne:
     {{"acao": "duvida", "resposta": "Sua resposta"}}
+    6. O formato AAAA-MM-DDTHH:MM é de uso INTERNO do sistema. NUNCA peça nem mencione esse formato ao cliente.
+       Fale sempre de forma natural e simpática, como uma recepcionista de verdade
+       (ex: "Qual dia e horário ficam melhores para você?").
+       Se o cliente disser "amanhã às 14h", "sexta de manhã" etc., converta você mesma para a data correta usando a Data/Hora atual.
+    7. Se o cliente já escolheu o serviço mas ainda não disse dia e horário, use "acao": "duvida" e pergunte de forma natural qual dia e horário ele prefere.
     """
 
     messages_for_api = [{"role": "system", "content": system_prompt}]
@@ -318,11 +323,15 @@ def processar_mensagem(prompt):
 st.title("💈 Barbearia do João")
 st.caption("Atendimento virtual 24h com a Sofia · Corte R$30 · Corte+Barba R$50 · Barba R$20")
 
+# Área da conversa: fica SEMPRE acima da caixa de mensagem
+chat_area = st.container()
+
 # Renderiza o histórico do chat
-for message in st.session_state.messages:
-    avatar = "💈" if message["role"] == "assistant" else "🧑‍💼"
-    with st.chat_message(message["role"], avatar=avatar):
-        st.markdown(message["content"])
+with chat_area:
+    for message in st.session_state.messages:
+        avatar = "💈" if message["role"] == "assistant" else "🧑‍💼"
+        with st.chat_message(message["role"], avatar=avatar):
+            st.markdown(message["content"])
 
 # --- 5. Entradas do Usuário (Texto e Áudio) ---
 
@@ -343,7 +352,8 @@ with col2:
 
 # Processa Texto
 if prompt:
-    processar_mensagem(prompt)
+    with chat_area:  # a nova conversa aparece dentro da área, acima da caixa de mensagem
+        processar_mensagem(prompt)
 
 # Processa Áudio
 audio_bytes = audio_value.getvalue() if audio_value is not None else None
@@ -352,7 +362,7 @@ audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
 # Só processa se for um áudio NOVO (evita o loop de reenvio)
 if audio_hash and audio_hash != st.session_state.last_audio_hash:
     st.session_state.last_audio_hash = audio_hash  # marca como processado ANTES de tudo
-    with st.spinner("Transcrevendo áudio..."):
+    with chat_area, st.spinner("Transcrevendo áudio..."):
         try:
             audio_file = io.BytesIO(audio_bytes)
             audio_file.name = "audio.wav"
