@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; font-family: "Lato", "Segoe UI", sans-serif; }
+  #btn {
+    width: 100%; height: 56px; box-sizing: border-box;
+    border: 1.5px solid #c9a227; border-radius: 6px;
+    background: #241c17; color: #f3e9d7;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 14px; letter-spacing: .5px;
+    cursor: pointer; outline: none;
+    user-select: none; -webkit-user-select: none;
+    touch-action: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+    transition: background .15s, border-color .15s, transform .1s;
+  }
+  #btn:hover { background: #33261e; }
+  #btn.rec {
+    background: #b3202a; border-color: #ff8a8a; transform: scale(0.98);
+    animation: pulse 1s infinite;
+  }
+  #icon { font-size: 20px; line-height: 1; }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(179,32,42,.65); }
+    70%  { box-shadow: 0 0 0 12px rgba(179,32,42,0); }
+    100% { box-shadow: 0 0 0 0 rgba(179,32,42,0); }
+  }
+</style>
+</head>
+<body>
+  <div id="btn" role="button" aria-label="Segure para falar">
+    <span id="icon">🎤</span><span id="label">Segure para falar</span>
+  </div>
+
+<script>
+  const btn = document.getElementById("btn");
+  const label = document.getElementById("label");
+  const icon = document.getElementById("icon");
+  const IDLE = "Segure para falar";
+
+  function send(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data), "*");
+  }
+  send("streamlit:componentReady", { apiVersion: 1 });
+  send("streamlit:setFrameHeight", { height: 60 });
+
+  let rec = null, chunks = [], stream = null, t0 = 0, timer = null;
+  let starting = false, wantStop = false;
+
+  function pickMime() {
+    const opts = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+    for (const m of opts) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return "";
+  }
+
+  function releaseStream() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  }
+
+  function tick() {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    label.textContent = "Gravando... " + String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+  }
+
+  function blobToB64(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onloadend = () => resolve(String(r.result).split(",")[1]);
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+  }
+
+  async function start() {
+    if (rec || starting) return;
+    starting = true; wantStop = false;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      label.textContent = "Permita o microfone";
+      starting = false;
+      return;
+    }
+    starting = false;
+    if (wantStop) { releaseStream(); return; }   // soltou antes do microfone liberar
+
+    const mime = pickMime();
+    rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    chunks = [];
+    rec.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+    rec.onstop = onStop;
+    rec.start();
+    t0 = Date.now();
+    btn.classList.add("rec");
+    icon.textContent = "⏺️";
+    timer = setInterval(tick, 200);
+    tick();
+  }
+
+  function stop() {
+    wantStop = true;
+    if (rec && rec.state === "recording") rec.stop();
+  }
+
+  async function onStop() {
+    clearInterval(timer);
+    btn.classList.remove("rec");
+    icon.textContent = "🎤";
+    releaseStream();
+    const dur = Date.now() - t0;
+    const type = (rec && rec.mimeType) || "audio/webm";
+    rec = null;
+
+    if (dur < 600) {                 // toque rápido demais: descarta
+      label.textContent = IDLE;
+      return;
+    }
+    label.textContent = "Enviando...";
+    const blob = new Blob(chunks, { type: type });
+    const b64 = await blobToB64(blob);
+    const ext = type.includes("mp4") ? "mp4" : type.includes("ogg") ? "ogg" : type.includes("wav") ? "wav" : "webm";
+    send("streamlit:setComponentValue", {
+      value: { id: Date.now() + "-" + Math.random().toString(36).slice(2), data: b64, ext: ext, mime: type },
+      dataType: "json"
+    });
+    setTimeout(() => { label.textContent = IDLE; }, 800);
+  }
+
+  btn.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+    start();
+  });
+  btn.addEventListener("pointerup", stop);
+  btn.addEventListener("pointercancel", stop);
+  btn.addEventListener("contextmenu", e => e.preventDefault());
+</script>
+</body>
+</html>
