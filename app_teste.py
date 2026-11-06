@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import json
 import io
+import time # <--- ADICIONE ESTA LINHA
 import base64
 import streamlit.components.v1 as components
 from datetime import datetime, timedelta
@@ -320,12 +321,23 @@ def processar_mensagem(prompt):
 
             except Exception as e:
                 resposta_final = f"⚠️ Erro no sistema: {str(e)}"
+				# ==========================================
+            # CÁLCULO DO TEMPO DE DIGITAÇÃO HUMANO
+            # ==========================================
+            # Multiplica o número de letras por 0.08 segundos
+            tempo_calculado = len(resposta_final) * 0.08
+            
+            # Define o limite: Mínimo de 3 segundos, Máximo de 20 segundos
+            tempo_de_espera = min(max(tempo_calculado, 3.0), 20.0)
+            
+            # Aguarda o tempo calculado (deixando o spinner rodando)
+            time.sleep(tempo_de_espera)
             
             # Renderiza a resposta do agente
-            st.markdown(esc(resposta_final))
+            st.markdown(resposta_final)
             st.session_state.messages.append({"role": "assistant", "content": resposta_final})
-
-
+            
+           
 # --- 4. Interface Principal ---
 st.title("💈 Barbearia do João")
 st.caption("Atendimento virtual 24h com a Sofia · Corte R\\$30 · Corte+Barba R\\$50 · Barba R\\$20")
