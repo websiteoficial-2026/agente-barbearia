@@ -1,11 +1,8 @@
-streamlit
-openai
-python-dotenv
+fastapi
+uvicorn
 requests
+openai
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
-fastapi
-uvicorn
-requests
